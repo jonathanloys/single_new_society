@@ -1,0 +1,27 @@
+{
+  "name": "soiree-celibataires-mvp",
+  "version": "1.0.0",
+  "description": "MVP Webapp pour soirées célibataires - Rencontres personnalisées, zones physiques et discrétion",
+  "type": "module",
+  "scripts": {
+    "server": "node server/index.js",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "node server/index.js"
+  },
+  "engines": {
+    "node": ">=22.x"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^5.4.11"
+  }
+}
