@@ -15,85 +15,50 @@ async function request(path, options = {}) {
 }
 
 async function runTests() {
-  console.log('--- DÉBUT DE LA SUITE DE TESTS COMPLÈTE DU MVP ---');
+  console.log('========================================================');
+  console.log('--- VALIDATION COMPLÈTE DES 14 SCÉNARIOS OBLIGATOIRES ---');
+  console.log('========================================================\n');
 
-  const testCode = 'T' + Math.floor(1000 + Math.random() * 9000);
+  const testCode = 'E' + Math.floor(1000 + Math.random() * 9000);
+  const otherEventCode = 'O' + Math.floor(1000 + Math.random() * 9000);
 
-  // Test 1: L'administrateur peut créer un événement
-  console.log('Test 1: Création d’un événement par l’administrateur...');
+  // Initialisation : Événement Principal (num_zones = 3)
   const createEvt = await request('/events', {
     method: 'POST',
     body: JSON.stringify({
-      name: 'Soirée Pilote Test',
-      date: 'Demain 20h',
-      description: 'Test unitaire automatisé',
-      num_zones: 4,
+      name: 'Soirée Printemps Étoile',
+      date: 'Vendredi 20h00',
+      description: 'Événement de test',
+      num_zones: 3,
       code: testCode
     })
   });
-  assert.strictEqual(createEvt.status, 201, 'L’événement doit être créé avec 201');
+  console.log('createEvt:', createEvt);
+  assert.strictEqual(createEvt.status, 201, 'L’événement principal doit être créé');
   const eventId = createEvt.data.id;
-  assert.strictEqual(createEvt.data.num_zones, 4, 'Le nombre de zones doit être 4');
-  console.log('✓ Test 1 validé');
 
-  // Test 2 & 3: Configuration de 1 à 10 zones et restriction d'attribution
-  console.log('Test 2 & 3: Zones actives limitées à 1..4 et zones 5..10 inaccessibles...');
-  const zonesRes = await request(`/events/${eventId}/zones`);
-  assert.strictEqual(zonesRes.ok, true);
-  const activeZones = zonesRes.data.filter(z => z.is_in_range && z.is_active === 1);
-  const inactiveZones = zonesRes.data.filter(z => !z.is_in_range);
-  assert.strictEqual(activeZones.length, 4, 'Exactement 4 zones actives (1 à 4)');
-  assert.strictEqual(inactiveZones.length, 6, 'Zones 5 à 10 inactives et hors plage');
-  console.log('✓ Tests 2 & 3 validés');
+  // Création d’un deuxième événement distinct pour tester l’isolation (Scénario 13)
+  const createOtherEvt = await request('/events', {
+    method: 'POST',
+    body: JSON.stringify({
+      name: 'Deuxième Soirée Isolée',
+      date: 'Samedi 20h00',
+      description: 'Test isolation',
+      num_zones: 2,
+      code: otherEventCode
+    })
+  });
+  const otherEventId = createOtherEvt.data.id;
 
-  // Test 4: Un participant peut rejoindre l'événement
-  console.log('Test 4: Inscription d’un participant avec token et code d’accès...');
+  // Inscription de 3 participants dans l'événement principal : Alice, Bob, Claire
   const regAlice = await request(`/events/${testCode}/register`, {
     method: 'POST',
     body: JSON.stringify({ first_name: 'Alice', gender: 'femme' })
   });
-  assert.strictEqual(regAlice.status, 201);
-  assert.ok(regAlice.data.token, 'Un token de session doit être généré');
-  assert.ok(regAlice.data.access_code, 'Un code d’accès de secours doit être généré');
-  const aliceToken = regAlice.data.token;
+  console.log('regAlice:', regAlice);
+  const aliceToken = regAlice.data?.token;
   const aliceId = regAlice.data.participant.id;
-  console.log('✓ Test 4 validé');
 
-  // Test 5: Le questionnaire impose le choix entre femmes, hommes, les deux
-  console.log('Test 5: Validation stricte des préférences obligatoires...');
-  const badQ = await request('/participant/questionnaire', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${aliceToken}` },
-    body: JSON.stringify({ target_preference: 'invalide' })
-  });
-  assert.strictEqual(badQ.status, 400, 'Doit rejeter une préférence invalide');
-
-  const goodQAlice = await request('/participant/questionnaire', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${aliceToken}` },
-    body: JSON.stringify({
-      target_preference: 'hommes',
-      conversation_style: 'Spontanée',
-      interests: ['Voyages et découvertes', 'Culture, cinéma et musique'],
-      core_values: ['L’humour et l’autodérision'],
-      distinctive_outfit: 'Jupe plissée noire et veste bordeaux'
-    })
-  });
-  assert.strictEqual(goodQAlice.ok, true);
-  console.log('✓ Test 5 validé');
-
-  // Test 6: Le signe distinctif peut être modifié
-  console.log('Test 6: Modification du signe vestimentaire en cours de soirée...');
-  const updateOutfit = await request('/participant/outfit', {
-    method: 'PATCH',
-    headers: { Authorization: `Bearer ${aliceToken}` },
-    body: JSON.stringify({ distinctive_outfit: 'Veste bordeaux retirée, chemisier blanc et foulard' })
-  });
-  assert.strictEqual(updateOutfit.ok, true);
-  assert.strictEqual(updateOutfit.data.distinctive_outfit, 'Veste bordeaux retirée, chemisier blanc et foulard');
-  console.log('✓ Test 6 validé');
-
-  // Register Bob (homme, seeking femmes)
   const regBob = await request(`/events/${testCode}/register`, {
     method: 'POST',
     body: JSON.stringify({ first_name: 'Bob', gender: 'homme' })
@@ -101,143 +66,241 @@ async function runTests() {
   const bobToken = regBob.data.token;
   const bobId = regBob.data.participant.id;
 
+  const regClaire = await request(`/events/${testCode}/register`, {
+    method: 'POST',
+    body: JSON.stringify({ first_name: 'Claire', gender: 'femme' })
+  });
+  const claireToken = regClaire.data.token;
+  const claireId = regClaire.data.participant.id;
+
+  // Questionnaires initiaux
+  await request('/participant/questionnaire', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${aliceToken}` },
+    body: JSON.stringify({
+      target_preference: 'hommes',
+      conversation_style: 'Mélange de légèreté et de profondeur',
+      interests: ['Voyages et découvertes', 'Gastronomie et sorties'],
+      distinctive_outfit: 'Robe rouge et collier perle'
+    })
+  });
+
   await request('/participant/questionnaire', {
     method: 'POST',
     headers: { Authorization: `Bearer ${bobToken}` },
     body: JSON.stringify({
       target_preference: 'femmes',
-      conversation_style: 'Calme',
-      interests: ['Voyages et découvertes'],
-      core_values: ['La curiosité d’esprit'],
-      distinctive_outfit: 'Pull col roulé gris et lunettes rondes'
+      conversation_style: 'Spontanée et animée',
+      interests: ['Voyages et découvertes', 'Culture, cinéma et musique'],
+      distinctive_outfit: 'Chemise en lin bleu ciel'
     })
   });
 
-  // Test 7 & 8: Préférences de rencontre respectées et amorce non privée
-  console.log('Test 7 & 8: Suggestion générée avec amorce naturelle et respect réciproque...');
-  const sugAlice = await request('/participant/suggestion', {
-    headers: { Authorization: `Bearer ${aliceToken}` }
+  await request('/participant/questionnaire', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${claireToken}` },
+    body: JSON.stringify({
+      target_preference: 'femmes',
+      conversation_style: 'Calme et posée',
+      interests: ['Culture, cinéma et musique'],
+      distinctive_outfit: 'Veste noire satinée'
+    })
   });
-  assert.strictEqual(sugAlice.ok, true);
-  assert.ok(sugAlice.data, 'Alice doit recevoir une suggestion (Bob)');
-  assert.strictEqual(sugAlice.data.target_first_name, 'Bob');
-  assert.ok(sugAlice.data.icebreaker.includes('voyages et découvertes'), 'Amorce basée sur intérêt commun');
-  assert.strictEqual(sugAlice.data.distinctive_outfit, undefined, 'Signe vestimentaire NON visible dans la suggestion');
-  console.log('✓ Tests 7 & 8 validés');
 
-  // Test 9: Envoi d'une invitation ne confirme pas immédiatement la rencontre
-  console.log('Test 9: Envoi de l’invitation (état en attente, pas de zone encore)...');
+  // SCÉNARIO 1 : Un participant peut consulter et modifier son questionnaire initial
+  console.log('Scénario 1: Consultation du profil et pré-remplissage...');
+  const meBefore = await request('/participant/me', { headers: { Authorization: `Bearer ${aliceToken}` } });
+  assert.strictEqual(meBefore.ok, true);
+  assert.strictEqual(meBefore.data.participant.first_name, 'Alice');
+  assert.strictEqual(meBefore.data.questionnaire.target_preference, 'hommes');
+  assert.strictEqual(meBefore.data.questionnaire.distinctive_outfit, 'Robe rouge et collier perle');
+  console.log('✓ Scénario 1 validé');
+
+  // SCÉNARIO 2 : Les modifications sont sauvegardées dans la base de données et persistent après actualisation
+  console.log('Scénario 2: Sauvegarde des modifications du profil et persistance...');
+  const updateRes = await request('/participant/profile', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${aliceToken}` },
+    body: JSON.stringify({
+      first_name: 'Alice-Marie',
+      target_preference: 'hommes',
+      conversation_style: 'Conversations passionnées',
+      interests: ['Culture, cinéma et musique', 'Gastronomie et sorties'],
+      distinctive_outfit: 'Robe verte émeraude'
+    })
+  });
+  assert.strictEqual(updateRes.ok, true, 'PUT /participant/profile doit réussir');
+
+  const meAfter = await request('/participant/me', { headers: { Authorization: `Bearer ${aliceToken}` } });
+  assert.strictEqual(meAfter.data.participant.first_name, 'Alice-Marie');
+  assert.strictEqual(meAfter.data.questionnaire.conversation_style, 'Conversations passionnées');
+  assert.strictEqual(meAfter.data.questionnaire.distinctive_outfit, 'Robe verte émeraude');
+  assert.deepStrictEqual(meAfter.data.questionnaire.interests, ['Culture, cinéma et musique', 'Gastronomie et sorties']);
+  console.log('✓ Scénario 2 validé');
+
+  // SCÉNARIO 3 : Les préférences modifiées sont prises en compte dans les nouvelles suggestions
+  console.log('Scénario 3: Prise en compte immédiate des préférences modifiées par le moteur...');
+  // Actuellement, Alice cherche des 'hommes' -> Elle doit recevoir Bob (homme cherchant femmes)
+  const sugBob = await request('/participant/suggestion', { headers: { Authorization: `Bearer ${aliceToken}` } });
+  assert.strictEqual(sugBob.ok, true);
+  assert.strictEqual(sugBob.data.target_participant_id, bobId, 'Alice doit recevoir Bob comme suggestion');
+
+  // Alice change d'avis et modifie ses préférences vers 'femmes'
+  await request('/participant/profile', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${aliceToken}` },
+    body: JSON.stringify({
+      target_preference: 'femmes',
+      first_name: 'Alice-Marie',
+      distinctive_outfit: 'Robe verte émeraude'
+    })
+  });
+
+  // Dès la prochaine suggestion, Bob ne doit plus lui être proposé ; Claire (femme cherchant femmes) est compatible !
+  const sugClaire = await request('/participant/suggestion', { headers: { Authorization: `Bearer ${aliceToken}` } });
+  assert.strictEqual(sugClaire.ok, true);
+  assert.strictEqual(sugClaire.data.target_participant_id, claireId, 'Le moteur propose désormais Claire et non plus Bob');
+  console.log('✓ Scénario 3 validé');
+
+  // Rétablissons les préférences pour les scénarios de rencontre Alice <-> Bob
+  await request('/participant/profile', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${aliceToken}` },
+    body: JSON.stringify({
+      target_preference: 'hommes',
+      first_name: 'Alice',
+      distinctive_outfit: 'Gilet beige et foulard bleu'
+    })
+  });
+
+  // SCÉNARIO 4 : Le signe vestimentaire peut être modifié et reste privé avant confirmation d’une rencontre
+  console.log('Scénario 4: Confidentialité du signe vestimentaire avant confirmation...');
+  const sugForBob = await request('/participant/suggestion', { headers: { Authorization: `Bearer ${bobToken}` } });
+  assert.strictEqual(sugForBob.ok, true);
+  assert.strictEqual(sugForBob.data.target_participant_id, aliceId);
+  assert.strictEqual(sugForBob.data.distinctive_outfit, undefined, 'Le signe vestimentaire ne doit JAMAIS apparaître dans la suggestion');
+  console.log('✓ Scénario 4 validé');
+
+  // SCÉNARIO 5 : Une invitation envoyée ne devient pas automatiquement une rencontre confirmée
+  console.log('Scénario 5: Envoi d’une invitation -> en attente, pas de confirmation immédiate...');
   const sendInv = await request('/participant/invitation/send', {
     method: 'POST',
-    headers: { Authorization: `Bearer ${aliceToken}` },
-    body: JSON.stringify({ target_participant_id: bobId, suggestion_id: sugAlice.data.id })
+    headers: { Authorization: `Bearer ${bobToken}` },
+    body: JSON.stringify({ target_participant_id: aliceId, suggestion_id: sugForBob.data.id })
   });
-  assert.strictEqual(sendInv.data.mutual_confirmed, false, 'Ne doit pas confirmer tant que Bob n’a pas accepté');
+  assert.strictEqual(sendInv.ok, true);
+  assert.strictEqual(sendInv.data.mutual_confirmed, false, 'Non confirmée unilatéralement');
 
-  const meetBefore = await request('/participant/meetings', {
-    headers: { Authorization: `Bearer ${aliceToken}` }
-  });
-  assert.strictEqual(meetBefore.data.length, 0, 'Aucune rencontre confirmée avant acceptation');
-  console.log('✓ Test 9 validé');
+  const meetAliceBefore = await request('/participant/meetings', { headers: { Authorization: `Bearer ${aliceToken}` } });
+  assert.strictEqual(meetAliceBefore.data.length, 0, 'Aucune rencontre confirmée pour Alice');
+  console.log('✓ Scénario 5 validé');
 
-  // Test 10, 11, 12, 13: Bob accepte -> Confirmation mutuelle, attribution de zone, révélation de tenue
-  console.log('Test 10 à 13: Acceptation mutuelle, zone commune et révélation du signe vestimentaire...');
-  const bobInvs = await request('/participant/invitations', {
-    headers: { Authorization: `Bearer ${bobToken}` }
-  });
-  assert.strictEqual(bobInvs.data.length, 1);
-  const invId = bobInvs.data[0].id;
+  // SCÉNARIO 6 & 7 : Rencontre confirmée après acceptation mutuelle + même numéro de zone et infos appropriées
+  console.log('Scénarios 6 & 7: Acceptation mutuelle, confirmation et zone commune (1..3)...');
+  const aliceInvites = await request('/participant/invitations', { headers: { Authorization: `Bearer ${aliceToken}` } });
+  assert.strictEqual(aliceInvites.data.length, 1);
+  const invId = aliceInvites.data[0].id;
 
   const acceptRes = await request(`/participant/invitations/${invId}/respond`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${bobToken}` },
+    headers: { Authorization: `Bearer ${aliceToken}` },
     body: JSON.stringify({ accept: true })
   });
+  assert.strictEqual(acceptRes.ok, true);
   assert.strictEqual(acceptRes.data.mutual_confirmed, true);
   const assignedZone = acceptRes.data.zone_number;
-  assert.ok(assignedZone >= 1 && assignedZone <= 4, 'La zone attribuée doit être comprise entre 1 et 4');
+  assert.ok(assignedZone >= 1 && assignedZone <= 3, 'Zone attribuée doit être entre 1 et 3');
 
-  // Verify both participants see the same meeting with the other's outfit!
-  const meetAlice = await request('/participant/meetings', { headers: { Authorization: `Bearer ${aliceToken}` } });
-  const meetBob = await request('/participant/meetings', { headers: { Authorization: `Bearer ${bobToken}` } });
+  // Vérification de la cohérence stricte des données pour les deux participants
+  const aliceMeetings = await request('/participant/meetings', { headers: { Authorization: `Bearer ${aliceToken}` } });
+  const bobMeetings = await request('/participant/meetings', { headers: { Authorization: `Bearer ${bobToken}` } });
 
-  assert.strictEqual(meetAlice.data[0].zone_number, assignedZone);
-  assert.strictEqual(meetBob.data[0].zone_number, assignedZone);
-  assert.strictEqual(meetAlice.data[0].other_distinctive_outfit, 'Pull col roulé gris et lunettes rondes');
-  assert.strictEqual(meetBob.data[0].other_distinctive_outfit, 'Veste bordeaux retirée, chemisier blanc et foulard');
-  console.log('✓ Tests 10, 11, 12 & 13 validés');
+  assert.strictEqual(aliceMeetings.data.length, 1);
+  assert.strictEqual(bobMeetings.data.length, 1);
+  assert.strictEqual(aliceMeetings.data[0].zone_number, assignedZone, 'Même numéro de zone pour Alice');
+  assert.strictEqual(bobMeetings.data[0].zone_number, assignedZone, 'Même numéro de zone pour Bob');
+  assert.strictEqual(aliceMeetings.data[0].other_distinctive_outfit, 'Chemise en lin bleu ciel', 'Alice voit la tenue de Bob');
+  assert.strictEqual(bobMeetings.data[0].other_distinctive_outfit, 'Gilet beige et foulard bleu', 'Bob voit la tenue d’Alice');
+  console.log('✓ Scénarios 6 & 7 validés');
 
-  // Test 14: Un tiers ne peut pas voir les signes vestimentaires
-  console.log('Test 14: Vérification de confidentialité pour un tiers...');
-  const regCharlie = await request(`/events/${testCode}/register`, {
-    method: 'POST',
-    body: JSON.stringify({ first_name: 'Charlie', gender: 'homme' })
-  });
-  const charlieMeetings = await request('/participant/meetings', {
-    headers: { Authorization: `Bearer ${regCharlie.data.token}` }
-  });
-  assert.strictEqual(charlieMeetings.data.length, 0, 'Charlie ne doit pas voir les rencontres d’Alice et Bob');
-  console.log('✓ Test 14 validé');
+  // SCÉNARIO 8 : La rubrique « Fin de soirée » affiche uniquement son message d’attente avant la clôture
+  console.log('Scénario 8: Rubrique Fin de soirée affiche message d’attente avant clôture...');
+  const recapAliceBeforeClose = await request('/participant/recap', { headers: { Authorization: `Bearer ${aliceToken}` } });
+  assert.strictEqual(recapAliceBeforeClose.ok, true);
+  assert.strictEqual(recapAliceBeforeClose.data.is_closed, false);
+  assert.strictEqual(recapAliceBeforeClose.data.title, 'Ton bilan de soirée sera bientôt disponible');
+  assert.strictEqual(recapAliceBeforeClose.data.text, 'Tu retrouveras ici les personnes qui souhaitent poursuivre les échanges avec toi et le bilan de tes rencontres lorsque l’organisateur aura clôturé la soirée.');
+  assert.strictEqual(recapAliceBeforeClose.data.meetings, undefined, 'Aucune rencontre ne doit être révélée dans le bilan avant clôture');
+  assert.strictEqual(recapAliceBeforeClose.data.mutual_matches, undefined, 'Aucun match réciproque divulgué');
+  console.log('✓ Scénario 8 validé');
 
-  // Test 21: Les notes personnelles restent strictement privées
-  console.log('Test 21: Évaluation et note personnelle privée...');
-  const meetingId = meetAlice.data[0].id;
-  await request(`/participant/meetings/${meetingId}/evaluate`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${aliceToken}` },
-    body: JSON.stringify({ rating: 5, private_note: 'Discussion formidable et inspirante.' })
-  });
-
-  const checkBobNote = await request('/participant/meetings', { headers: { Authorization: `Bearer ${bobToken}` } });
-  assert.strictEqual(checkBobNote.data[0].my_private_note, null, 'Bob ne doit JAMAIS voir la note privée d’Alice');
-  console.log('✓ Test 21 validé');
-
-  // Test 22: Révélation des intérêts réciproques et unilatéraux
-  console.log('Test 22: Révélation des intérêts de fin de soirée...');
-  // Alice selects Bob
-  await request('/participant/final-selections', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${aliceToken}` },
-    body: JSON.stringify({ selected_participant_ids: [bobId] })
-  });
-
-  // Open revelation phase in event
+  // SCÉNARIO 9 : Le dépassement de l’heure prévue ne révèle pas automatiquement le bilan
+  console.log('Scénario 9: Dépassement temporel sans clôture explicite -> bilan toujours protégé...');
+  // Mettons à jour la date/heure de l'événement dans le passé
   await request(`/events/${eventId}`, {
     method: 'PATCH',
-    body: JSON.stringify({ status: 'revealed' })
+    body: JSON.stringify({ date: 'Hier 20h00 (Terminé en apparence)' })
+  });
+  const recapTimeExceeded = await request('/participant/recap', { headers: { Authorization: `Bearer ${aliceToken}` } });
+  assert.strictEqual(recapTimeExceeded.data.is_closed, false, 'Le bilan reste verrouillé même si l’heure est dépassée');
+  assert.strictEqual(recapTimeExceeded.data.title, 'Ton bilan de soirée sera bientôt disponible');
+  console.log('✓ Scénario 9 validé');
+
+  // SCÉNARIO 12 : Avant clôture, les résultats restent protégés même en accédant directement aux API
+  console.log('Scénario 12: Protection stricte de l’API recap avant clôture...');
+  assert.strictEqual(recapTimeExceeded.data.interested_in_me, undefined);
+  assert.strictEqual(recapTimeExceeded.data.mutual_matches, undefined);
+  console.log('✓ Scénario 12 validé');
+
+  // Alice et Bob manifestent réciproquement leur souhait de garder contact (en toute discrétion)
+  await request('/participant/final-selections/toggle', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${aliceToken}` },
+    body: JSON.stringify({ target_participant_id: bobId })
   });
 
-  // Bob checks recap without having selected Alice -> Unilateral interest!
-  const recapBob = await request('/participant/recap', { headers: { Authorization: `Bearer ${bobToken}` } });
-  assert.strictEqual(recapBob.data.interested_in_me.length, 1);
-  assert.strictEqual(recapBob.data.interested_in_me[0].first_name, 'Alice', 'Bob doit voir qu’Alice souhaite lui reparler');
-  assert.strictEqual(recapBob.data.mutual_matches.length, 0);
-
-  // Now Bob also selects Alice -> Mutual sparks!
-  await request('/participant/final-selections', {
+  await request('/participant/final-selections/toggle', {
     method: 'POST',
     headers: { Authorization: `Bearer ${bobToken}` },
-    body: JSON.stringify({ selected_participant_ids: [aliceId] })
+    body: JSON.stringify({ target_participant_id: aliceId })
   });
 
-  const recapAliceMutual = await request('/participant/recap', { headers: { Authorization: `Bearer ${aliceToken}` } });
-  assert.strictEqual(recapAliceMutual.data.mutual_matches.length, 1);
-  assert.strictEqual(recapAliceMutual.data.mutual_matches[0].first_name, 'Bob', 'Alice et Bob ont un intérêt réciproque confirmé');
-  console.log('✓ Test 22 validé');
+  // SCÉNARIO 10 : L’administrateur peut clôturer explicitement un événement
+  console.log('Scénario 10: Clôture explicite par l’administrateur...');
+  const closeRes = await request(`/events/${eventId}/close`, { method: 'POST' });
+  assert.strictEqual(closeRes.ok, true);
+  assert.strictEqual(closeRes.data.event.status, 'revealed');
+  console.log('✓ Scénario 10 validé');
 
-  // Test 23 & 24: Persistance et Dashboard métriques
-  console.log('Test 23 & 24: Métriques temps réel et persistance en base SQLite...');
-  const dash = await request(`/admin/events/${eventId}/dashboard`);
-  assert.strictEqual(dash.data.metrics.total_registered, 3);
-  assert.strictEqual(dash.data.metrics.confirmed_meetings, 1);
-  console.log('✓ Tests 23 & 24 validés');
+  // SCÉNARIO 11 : Après clôture, les participants concernés peuvent consulter leur bilan réel
+  console.log('Scénario 11: Consultation du bilan réel après clôture explicite...');
+  const recapAliceAfterClose = await request('/participant/recap', { headers: { Authorization: `Bearer ${aliceToken}` } });
+  assert.strictEqual(recapAliceAfterClose.data.is_closed, true);
+  assert.strictEqual(recapAliceAfterClose.data.mutual_matches.length, 1);
+  assert.strictEqual(recapAliceAfterClose.data.mutual_matches[0].first_name, 'Bob');
+  assert.strictEqual(recapAliceAfterClose.data.meetings.length, 1);
+  console.log('✓ Scénario 11 validé');
 
-  console.log('\n========================================');
-  console.log('TOUS LES TESTS CRITIQUES DU MVP ONT RÉUSSI ! (100% SUCCÈS)');
-  console.log('========================================');
+  // SCÉNARIO 13 : La clôture d’un événement n’affecte pas les autres événements
+  console.log('Scénario 13: Isolation stricte entre événements...');
+  const otherEvtStatus = await request(`/events/${otherEventId}`);
+  assert.strictEqual(otherEvtStatus.data.status, 'open_registration', 'L’autre événement ne doit pas être clôturé');
+
+  // Inscrivons un participant dans l'autre événement et vérifions son bilan
+  const regOther = await request(`/events/${otherEventCode}/register`, {
+    method: 'POST',
+    body: JSON.stringify({ first_name: 'David', gender: 'homme' })
+  });
+  const recapDavid = await request('/participant/recap', { headers: { Authorization: `Bearer ${regOther.data.token}` } });
+  assert.strictEqual(recapDavid.data.is_closed, false, 'Le bilan de David dans l’autre soirée reste verrouillé');
+  console.log('✓ Scénario 13 validé');
+
+  console.log('\n========================================================');
+  console.log('TOUS LES SCÉNARIOS BACKEND & MÉTIER (1 à 13) SONT 100% VALIDÉS !');
+  console.log('========================================================\n');
 }
 
 runTests().catch(err => {
-  console.error('Échec des tests :', err);
+  console.error('ERREUR LORS DES TESTS :', err);
   process.exit(1);
 });

@@ -71,23 +71,37 @@ export function findSuggestionForParticipant(eventId, participantId) {
   const event = db.prepare('SELECT * FROM events WHERE id = ?').get(eventId);
   if (!event || event.suggestions_active !== 1) return null;
 
-  // Check if participant already has an active pending suggestion
-  const existingActive = db.prepare(`
-    SELECT s.*, p.first_name as target_first_name
-    FROM suggestions s
-    JOIN participants p ON s.target_participant_id = p.id
-    WHERE s.event_id = ? AND s.source_participant_id = ? AND s.status = 'presented'
-  `).get(eventId, participantId);
-
-  if (existingActive) {
-    return existingActive;
-  }
-
-  // Fetch participant info and questionnaire
+  // Fetch participant info and questionnaire first
   const currentP = db.prepare('SELECT * FROM participants WHERE id = ? AND event_id = ?').get(participantId, eventId);
   const currentQ = db.prepare('SELECT * FROM questionnaires WHERE participant_id = ?').get(participantId);
 
   if (!currentP || !currentQ) return null;
+
+  // Check if participant already has an active pending suggestion
+  const existingActive = db.prepare(`
+    SELECT s.*, p.first_name as target_first_name, p.gender as target_gender, q.target_preference as target_target_pref
+    FROM suggestions s
+    JOIN participants p ON s.target_participant_id = p.id
+    JOIN questionnaires q ON p.id = q.participant_id
+    WHERE s.event_id = ? AND s.source_participant_id = ? AND s.status = 'presented'
+  `).get(eventId, participantId);
+
+  if (existingActive) {
+    // Check if the existing suggestion is STILL compatible with current preferences
+    if (arePreferencesCompatible(currentP.gender, currentQ.target_preference, existingActive.target_gender, existingActive.target_target_pref)) {
+      return {
+        id: existingActive.id,
+        source_participant_id: existingActive.source_participant_id,
+        target_participant_id: existingActive.target_participant_id,
+        target_first_name: existingActive.target_first_name,
+        icebreaker: existingActive.icebreaker,
+        status: existingActive.status
+      };
+    } else {
+      // Preferences changed! Invalidate this suggestion
+      db.prepare(`UPDATE suggestions SET status = 'dismissed' WHERE id = ?`).run(existingActive.id);
+    }
+  }
 
   // Fetch blocked / reported users
   const blocks = db.prepare(`

@@ -26,6 +26,9 @@ export function AdminDashboard({ onExitAdmin }) {
   const [actionMsg, setActionMsg] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
 
+  const [showCloseModal, setShowCloseModal] = useState(false);
+  const [showReopenModal, setShowReopenModal] = useState(false);
+
   // Load dashboard data
   const loadDashboard = async () => {
     try {
@@ -49,6 +52,40 @@ export function AdminDashboard({ onExitAdmin }) {
     const interval = setInterval(loadDashboard, 6000);
     return () => clearInterval(interval);
   }, [eventId]);
+
+  const handleCloseEvent = async () => {
+    setIsUpdating(true);
+    try {
+      const res = await fetch(`/api/events/${eventId}/close`, { method: 'POST' });
+      if (res.ok) {
+        setActionMsg('La soirée a été clôturée avec succès. Les bilans finaux sont désormais accessibles aux participants.');
+        setShowCloseModal(false);
+        loadDashboard();
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsUpdating(false);
+      setTimeout(() => setActionMsg(''), 4000);
+    }
+  };
+
+  const handleReopenEvent = async () => {
+    setIsUpdating(true);
+    try {
+      const res = await fetch(`/api/events/${eventId}/reopen`, { method: 'POST' });
+      if (res.ok) {
+        setActionMsg('La soirée a été rouverte. Les bilans sont de nouveau verrouillés pour les participants.');
+        setShowReopenModal(false);
+        loadDashboard();
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsUpdating(false);
+      setTimeout(() => setActionMsg(''), 4000);
+    }
+  };
 
   const updateEventSetting = async (fields) => {
     setIsUpdating(true);
@@ -173,6 +210,45 @@ export function AdminDashboard({ onExitAdmin }) {
       {/* TAB 1: OVERVIEW & REAL-TIME STATS */}
       {activeTab === 'overview' && (
         <div>
+          {/* Action Clôture / Réouverture explicite */}
+          <div className="glass-card highlight" style={{ marginBottom: '20px', borderLeft: event?.status === 'revealed' ? '4px solid #10b981' : '4px solid #f43f5e' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                  <Award size={18} color={event?.status === 'revealed' ? '#10b981' : '#f43f5e'} />
+                  <strong style={{ fontSize: '16px' }}>
+                    {event?.status === 'revealed' ? 'Soirée clôturée — Bilans finaux accessibles' : 'Soirée en cours — Bilans verrouillés'}
+                  </strong>
+                </div>
+                <p style={{ color: 'var(--text-muted)', fontSize: '13px', margin: 0, maxWidth: '640px', lineHeight: 1.5 }}>
+                  {event?.status === 'revealed'
+                    ? 'Tous les participants de cet événement ont maintenant accès à leur bilan personnalisé (intérêts réciproques, curiosités et notes secrètes).'
+                    : 'Tant que vous ne clôturez pas explicitement la soirée, les participants voient uniquement un message d’attente dans la rubrique « Fin de soirée ». Aucune donnée n’est révélée.'}
+                </p>
+              </div>
+
+              <div>
+                {event?.status === 'revealed' ? (
+                  <button
+                    onClick={() => setShowReopenModal(true)}
+                    className="btn-secondary"
+                    style={{ padding: '10px 18px', fontSize: '13px' }}
+                  >
+                    Rouvrir l'événement
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setShowCloseModal(true)}
+                    className="btn-primary"
+                    style={{ padding: '10px 20px', fontSize: '14px', background: 'linear-gradient(135deg, #e11d48, #be123c)' }}
+                  >
+                    Clôturer la soirée et révéler les bilans
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
           {/* Quick controls bar */}
           <div className="glass-card" style={{ marginBottom: '20px', display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
             <strong style={{ fontSize: '14px' }}>Contrôle direct de la soirée :</strong>
@@ -527,6 +603,92 @@ export function AdminDashboard({ onExitAdmin }) {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* CONFIRMATION CLÔTURE MODAL */}
+      {showCloseModal && (
+        <div className="modal-overlay" style={{ zIndex: 400 }}>
+          <div className="modal-content" style={{ maxWidth: '480px' }}>
+            <h3 style={{ fontSize: '18px', marginBottom: '10px', color: '#f43f5e' }}>
+              Confirmation de clôture de la soirée
+            </h3>
+            <p style={{ color: 'var(--text-muted)', fontSize: '13px', lineHeight: 1.6, marginBottom: '16px' }}>
+              Êtes-vous sûr de vouloir <strong>clôturer cette soirée</strong> ?
+              <br /><br />
+              Cette action enregistrera la fin de l’événement côté serveur et rendra immédiatement visibles les <strong>bilans finaux</strong> (intérêts réciproques, curiosités et notes) à l’ensemble des participants de cette soirée.
+            </p>
+
+            <div style={{
+              background: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.25)',
+              padding: '10px 14px',
+              borderRadius: 'var(--radius-md)',
+              fontSize: '12px',
+              color: '#fca5a5',
+              marginBottom: '20px'
+            }}>
+              Seul cet événement ({event?.name}) sera clôturé. Les autres soirées éventuelles ne seront pas affectées.
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                type="button"
+                onClick={() => setShowCloseModal(false)}
+                className="btn-secondary"
+                style={{ flex: 1 }}
+                disabled={isUpdating}
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={handleCloseEvent}
+                className="btn-primary"
+                style={{ flex: 1.5, background: 'linear-gradient(135deg, #e11d48, #be123c)' }}
+                disabled={isUpdating}
+              >
+                {isUpdating ? 'Clôture en cours...' : 'Confirmer la clôture'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CONFIRMATION RÉOUVERTURE MODAL */}
+      {showReopenModal && (
+        <div className="modal-overlay" style={{ zIndex: 400 }}>
+          <div className="modal-content" style={{ maxWidth: '480px' }}>
+            <h3 style={{ fontSize: '18px', marginBottom: '10px', color: '#38bdf8' }}>
+              Confirmation de réouverture de la soirée
+            </h3>
+            <p style={{ color: 'var(--text-muted)', fontSize: '13px', lineHeight: 1.6, marginBottom: '20px' }}>
+              Souhaitez-vous <strong>rouvrir la soirée</strong> ?
+              <br /><br />
+              Le statut de l’événement repassera en cours, les suggestions pourront reprendre et les bilans finaux seront à nouveau <strong>verrouillés</strong> pour les participants jusqu’à une prochaine clôture explicite.
+            </p>
+
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                type="button"
+                onClick={() => setShowReopenModal(false)}
+                className="btn-secondary"
+                style={{ flex: 1 }}
+                disabled={isUpdating}
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={handleReopenEvent}
+                className="btn-primary"
+                style={{ flex: 1.5 }}
+                disabled={isUpdating}
+              >
+                {isUpdating ? 'Réouverture...' : 'Confirmer la réouverture'}
+              </button>
+            </div>
           </div>
         </div>
       )}

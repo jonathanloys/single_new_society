@@ -245,15 +245,65 @@ input:focus, textarea:focus, select:focus {
 
 /* App container */
 .app-container {
-  max-width: 480px;
+  max-width: 540px;
   margin: 0 auto;
   padding: 16px;
-  padding-bottom: 90px;
+  padding-bottom: 95px;
   min-height: 100vh;
 }
 
 .app-container.admin-mode {
   max-width: 1080px;
+}
+
+/* Top Navigation Tabs (Identical 4 rubriques on Desktop & Mobile) */
+.desktop-nav-tabs {
+  display: flex;
+  background: rgba(18, 23, 34, 0.75);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 4px;
+  gap: 4px;
+  margin-bottom: 22px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.desktop-nav-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.desktop-tab-btn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-dim);
+  transition: all 0.2s ease;
+  cursor: pointer;
+  border: none;
+  position: relative;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.desktop-tab-btn:hover {
+  color: var(--text-main);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.desktop-tab-btn.active {
+  background: var(--primary-gradient);
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(244, 63, 94, 0.35);
 }
 
 /* Bottom navigation bar for mobile */

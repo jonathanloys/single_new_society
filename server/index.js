@@ -311,10 +311,11 @@ app.get('/api/participant/me', authenticateParticipant, (req, res) => {
   });
 });
 
-// Save or complete questionnaire
+// Save or complete questionnaire (also supports updating first_name)
 app.post('/api/participant/questionnaire', authenticateParticipant, (req, res) => {
   const p = req.participant;
   const {
+    first_name,
     target_preference,
     conversation_style,
     interests,
@@ -329,6 +330,10 @@ app.post('/api/participant/questionnaire', authenticateParticipant, (req, res) =
     return res.status(400).json({
       error: 'La question sur les préférences de rencontre est obligatoire (Femmes, Hommes, ou Les deux).'
     });
+  }
+
+  if (first_name && first_name.trim()) {
+    db.prepare('UPDATE participants SET first_name = ? WHERE id = ?').run(first_name.trim(), p.id);
   }
 
   const qId = `q-${p.id}`;
@@ -363,6 +368,91 @@ app.post('/api/participant/questionnaire', authenticateParticipant, (req, res) =
   );
 
   res.json({ success: true, message: 'Questionnaire enregistré avec succès.' });
+});
+
+// Update participant profile & questionnaire directly
+app.put('/api/participant/profile', authenticateParticipant, (req, res) => {
+  const p = req.participant;
+  const {
+    first_name,
+    target_preference,
+    conversation_style,
+    interests,
+    custom_interest,
+    values,
+    relational_expectations,
+    distinctive_outfit
+  } = req.body;
+
+  if (target_preference && !['femmes', 'hommes', 'deux'].includes(target_preference)) {
+    return res.status(400).json({
+      error: 'Les préférences de rencontre doivent être "femmes", "hommes", ou "deux".'
+    });
+  }
+
+  if (first_name && first_name.trim()) {
+    db.prepare('UPDATE participants SET first_name = ? WHERE id = ?').run(first_name.trim(), p.id);
+  }
+
+  const existingQ = db.prepare('SELECT * FROM questionnaires WHERE participant_id = ?').get(p.id);
+  const now = new Date().toISOString();
+
+  const finalTargetPref = target_preference || existingQ?.target_preference || 'deux';
+  const finalConvStyle = conversation_style !== undefined ? conversation_style : (existingQ?.conversation_style || '');
+  const finalInterests = interests !== undefined ? JSON.stringify(interests) : (existingQ?.interests || '[]');
+  const finalCustomInterest = custom_interest !== undefined ? custom_interest : (existingQ?.custom_interest || '');
+  const finalValues = values !== undefined ? JSON.stringify(values) : (existingQ?.core_values || '[]');
+  const finalExpectations = relational_expectations !== undefined ? JSON.stringify(relational_expectations) : (existingQ?.relational_expectations || '[]');
+  const finalOutfit = distinctive_outfit !== undefined ? distinctive_outfit : (existingQ?.distinctive_outfit || '');
+
+  db.prepare(`
+    INSERT INTO questionnaires (
+      id, participant_id, target_preference, conversation_style,
+      interests, custom_interest, core_values, relational_expectations,
+      distinctive_outfit, completed_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(participant_id) DO UPDATE SET
+      target_preference = excluded.target_preference,
+      conversation_style = excluded.conversation_style,
+      interests = excluded.interests,
+      custom_interest = excluded.custom_interest,
+      core_values = excluded.core_values,
+      relational_expectations = excluded.relational_expectations,
+      distinctive_outfit = excluded.distinctive_outfit,
+      completed_at = excluded.completed_at
+  `).run(
+    existingQ?.id || `q-${p.id}`,
+    p.id,
+    finalTargetPref,
+    finalConvStyle,
+    finalInterests,
+    finalCustomInterest,
+    finalValues,
+    finalExpectations,
+    finalOutfit,
+    now
+  );
+
+  const updatedP = db.prepare('SELECT * FROM participants WHERE id = ?').get(p.id);
+  const updatedQ = db.prepare('SELECT * FROM questionnaires WHERE participant_id = ?').get(p.id);
+
+  res.json({
+    success: true,
+    message: 'Modifications enregistrées avec succès.',
+    participant: {
+      id: updatedP.id,
+      first_name: updatedP.first_name,
+      access_code: updatedP.access_code,
+      gender: updatedP.gender,
+      event_id: updatedP.event_id
+    },
+    questionnaire: updatedQ ? {
+      ...updatedQ,
+      interests: JSON.parse(updatedQ.interests || '[]'),
+      values: JSON.parse(updatedQ.core_values || '[]'),
+      relational_expectations: JSON.parse(updatedQ.relational_expectations || '[]')
+    } : null
+  });
 });
 
 // Update distinctive outfit anytime during the evening
@@ -576,6 +666,11 @@ app.get('/api/participant/meetings', authenticateParticipant, (req, res) => {
     ORDER BY m.confirmed_at DESC
   `).all(p.id, p.event_id, p.id, p.id);
 
+  const mySelections = db.prepare(`
+    SELECT selected_participant_id FROM final_selections
+    WHERE event_id = ? AND author_id = ?
+  `).all(p.event_id, p.id).map(s => s.selected_participant_id);
+
   const sanitized = rawMeetings.map(m => {
     const isP1 = m.participant1_id === p.id;
     const otherId = isP1 ? m.p2_id : m.p1_id;
@@ -594,11 +689,36 @@ app.get('/api/participant/meetings', authenticateParticipant, (req, res) => {
       // Outfit is only visible because meeting is mutual & confirmed!
       other_distinctive_outfit: (m.status === 'confirmed' || m.status === 'completed') ? otherOutfit : null,
       my_rating: m.my_rating,
-      my_private_note: m.my_private_note
+      my_private_note: m.my_private_note,
+      is_selected_for_recap: mySelections.includes(otherId)
     };
   });
 
   res.json(sanitized);
+});
+
+// Quick toggle for keeping in touch with a met person
+app.post('/api/participant/final-selections/toggle', authenticateParticipant, (req, res) => {
+  const p = req.participant;
+  const { target_participant_id } = req.body;
+  if (!target_participant_id) return res.status(400).json({ error: 'Cible manquante.' });
+
+  const existing = db.prepare(`
+    SELECT id FROM final_selections
+    WHERE event_id = ? AND author_id = ? AND selected_participant_id = ?
+  `).get(p.event_id, p.id, target_participant_id);
+
+  if (existing) {
+    db.prepare('DELETE FROM final_selections WHERE id = ?').run(existing.id);
+    return res.json({ selected: false });
+  } else {
+    const id = `fs-${p.id}-${target_participant_id}`;
+    db.prepare(`
+      INSERT INTO final_selections (id, event_id, author_id, selected_participant_id, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(id, p.event_id, p.id, target_participant_id, new Date().toISOString());
+    return res.json({ selected: true });
+  }
 });
 
 // Mark meeting as completed ("Rencontre effectuée")
@@ -786,11 +906,25 @@ app.post('/api/participant/final-selections', authenticateParticipant, (req, res
 });
 
 // Full personal recap screen
+// STRICT SECURITY REQUIREMENT:
+// Tant que l’administrateur n’a pas explicitement clôturé l’événement (status === 'revealed' ou 'closed'),
+// AUCUNE information du bilan n'est transmise (aucun résultat, aucun choix, aucune note, aucune curiosité).
 app.get('/api/participant/recap', authenticateParticipant, (req, res) => {
   const p = req.participant;
-  const event = db.prepare('SELECT status FROM events WHERE id = ?').get(p.event_id);
+  const event = db.prepare('SELECT * FROM events WHERE id = ?').get(p.event_id);
 
-  // 1. Meetings & private notes
+  const isClosed = event && (event.status === 'revealed' || event.status === 'closed');
+
+  if (!isClosed) {
+    return res.json({
+      is_closed: false,
+      event_status: event ? event.status : 'in_progress',
+      title: 'Ton bilan de soirée sera bientôt disponible',
+      text: 'Tu retrouveras ici les personnes qui souhaitent poursuivre les échanges avec toi et le bilan de tes rencontres lorsque l’organisateur aura clôturé la soirée.'
+    });
+  }
+
+  // 1. Meetings & private notes (unlocked ONLY after event closure)
   const meetings = db.prepare(`
     SELECT m.id, m.status, m.confirmed_at, m.completed_at,
            CASE WHEN m.participant1_id = ? THEN p2.first_name ELSE p1.first_name END as first_name,
@@ -815,44 +949,65 @@ app.get('/api/participant/recap', authenticateParticipant, (req, res) => {
     ORDER BY c.sent_at DESC
   `).all(p.event_id, p.id, p.id);
 
-  // 3. Selection & Revelation logic
-  // Only reveal who selected you if event.status === 'revealed'
+  // 3. Selection & Revelation logic (positive revelations only, no rejections shown)
   let interestedInMe = [];
   let mutualMatches = [];
 
-  if (event.status === 'revealed') {
-    // Who selected me?
-    const selectors = db.prepare(`
-      SELECT fs.author_id, p.first_name
-      FROM final_selections fs
-      JOIN participants p ON fs.author_id = p.id
-      WHERE fs.event_id = ? AND fs.selected_participant_id = ?
-    `).all(p.event_id, p.id);
+  // Who selected me?
+  const selectors = db.prepare(`
+    SELECT fs.author_id, p.first_name
+    FROM final_selections fs
+    JOIN participants p ON fs.author_id = p.id
+    WHERE fs.event_id = ? AND fs.selected_participant_id = ?
+  `).all(p.event_id, p.id);
 
-    // Who did I select?
-    const mySelections = db.prepare(`
-      SELECT selected_participant_id
-      FROM final_selections
-      WHERE event_id = ? AND author_id = ?
-    `).all(p.event_id, p.id).map(s => s.selected_participant_id);
+  // Who did I select?
+  const mySelections = db.prepare(`
+    SELECT selected_participant_id
+    FROM final_selections
+    WHERE event_id = ? AND author_id = ?
+  `).all(p.event_id, p.id).map(s => s.selected_participant_id);
 
-    for (const sel of selectors) {
-      const isMutual = mySelections.includes(sel.author_id);
-      if (isMutual) {
-        mutualMatches.push({ id: sel.author_id, first_name: sel.first_name });
-      } else {
-        interestedInMe.push({ id: sel.author_id, first_name: sel.first_name });
-      }
+  for (const sel of selectors) {
+    const isMutual = mySelections.includes(sel.author_id);
+    if (isMutual) {
+      mutualMatches.push({ id: sel.author_id, first_name: sel.first_name });
+    } else {
+      interestedInMe.push({ id: sel.author_id, first_name: sel.first_name });
     }
   }
 
   res.json({
+    is_closed: true,
     event_status: event.status,
+    title: 'Ton Bilan de Soirée',
     meetings,
     curiosities,
     interested_in_me: interestedInMe,
     mutual_matches: mutualMatches,
   });
+});
+
+// Explicit event closure by admin (reveals recaps for this event only)
+app.post('/api/events/:id/close', (req, res) => {
+  const eventId = req.params.id;
+  const event = db.prepare('SELECT * FROM events WHERE id = ?').get(eventId);
+  if (!event) return res.status(404).json({ error: 'Événement non trouvé.' });
+
+  db.prepare("UPDATE events SET status = 'revealed', suggestions_active = 0 WHERE id = ?").run(eventId);
+  const updated = db.prepare('SELECT * FROM events WHERE id = ?').get(eventId);
+  res.json({ success: true, message: 'Événement clôturé avec succès. Les bilans sont désormais consultables.', event: updated });
+});
+
+// Explicit event reopening by admin
+app.post('/api/events/:id/reopen', (req, res) => {
+  const eventId = req.params.id;
+  const event = db.prepare('SELECT * FROM events WHERE id = ?').get(eventId);
+  if (!event) return res.status(404).json({ error: 'Événement non trouvé.' });
+
+  db.prepare("UPDATE events SET status = 'in_progress', suggestions_active = 1 WHERE id = ?").run(eventId);
+  const updated = db.prepare('SELECT * FROM events WHERE id = ?').get(eventId);
+  res.json({ success: true, message: 'Événement rouvert. Les bilans sont verrouillés.', event: updated });
 });
 
 /* ============================================================
