@@ -12,11 +12,19 @@ initDatabase();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+
+// ADMIN_SECRET: required in production. Falls back to 'dev-admin-secret' locally for convenience.
+const ADMIN_SECRET = process.env.ADMIN_SECRET || (IS_PRODUCTION ? null : 'dev-admin-secret');
+
+if (IS_PRODUCTION && !ADMIN_SECRET) {
+  console.error('[SECURITY] FATAL: ADMIN_SECRET env variable is required in production. Server will not accept admin requests.');
+}
 
 app.use(cors());
 app.use(express.json());
 
-// Helper auth middleware
+// ---- Middleware: Participant Auth ----
 function authenticateParticipant(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -34,6 +42,27 @@ function authenticateParticipant(req, res, next) {
   next();
 }
 
+// ---- Middleware: Admin Auth ----
+function authenticateAdmin(req, res, next) {
+  if (!ADMIN_SECRET) {
+    return res.status(503).json({ error: 'Administration non disponible : ADMIN_SECRET non configuré.' });
+  }
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
+  if (!token || token !== ADMIN_SECRET) {
+    return res.status(403).json({ error: 'Accès administrateur refusé. Secret incorrect.' });
+  }
+  next();
+}
+
+// ---- Middleware: Demo-only (block in production) ----
+function demoOnly(req, res, next) {
+  if (IS_PRODUCTION) {
+    return res.status(404).json({ error: 'Route désactivée en production.' });
+  }
+  next();
+}
+
 /* ============================================================
    1. SYSTEM & DEMO SWITCHER
    ============================================================ */
@@ -42,8 +71,8 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString() });
 });
 
-// Demo participants switcher list (for testing ease)
-app.get('/api/demo/participants', (req, res) => {
+// Demo participants switcher list — désactivé en production
+app.get('/api/demo/participants', demoOnly, (req, res) => {
   const participants = db.prepare(`
     SELECT p.id, p.first_name, p.session_token, p.access_code, p.gender,
            q.target_preference, q.distinctive_outfit,
@@ -54,12 +83,11 @@ app.get('/api/demo/participants', (req, res) => {
     WHERE p.event_id = 'demo-soiree-paris'
     ORDER BY p.first_name ASC
   `).all();
-
   res.json(participants);
 });
 
-// Reset demo data
-app.post('/api/events/:id/reset-demo', (req, res) => {
+// Reset demo — désactivé en production, requiert le secret admin en local
+app.post('/api/events/:id/reset-demo', demoOnly, authenticateAdmin, (req, res) => {
   seedDemoEvent();
   res.json({ success: true, message: 'Données de démonstration réinitialisées avec succès.' });
 });
@@ -989,7 +1017,7 @@ app.get('/api/participant/recap', authenticateParticipant, (req, res) => {
 });
 
 // Explicit event closure by admin (reveals recaps for this event only)
-app.post('/api/events/:id/close', (req, res) => {
+app.post('/api/events/:id/close', authenticateAdmin, (req, res) => {
   const eventId = req.params.id;
   const event = db.prepare('SELECT * FROM events WHERE id = ?').get(eventId);
   if (!event) return res.status(404).json({ error: 'Événement non trouvé.' });
@@ -1000,7 +1028,7 @@ app.post('/api/events/:id/close', (req, res) => {
 });
 
 // Explicit event reopening by admin
-app.post('/api/events/:id/reopen', (req, res) => {
+app.post('/api/events/:id/reopen', authenticateAdmin, (req, res) => {
   const eventId = req.params.id;
   const event = db.prepare('SELECT * FROM events WHERE id = ?').get(eventId);
   if (!event) return res.status(404).json({ error: 'Événement non trouvé.' });

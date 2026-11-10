@@ -43,7 +43,8 @@ export const PRESET_CURIOSITIES = [
 
 export default function App() {
   // Navigation & session state
-  const [isAdmin, setIsAdmin] = useState(false);
+  const IS_PRODUCTION = import.meta.env.PROD;
+const [isAdmin, setIsAdmin] = useState(false);
   const [token, setToken] = useState(localStorage.getItem('soiree_token') || '');
   const [participant, setParticipant] = useState(null);
   const [questionnaire, setQuestionnaire] = useState(null);
@@ -132,15 +133,22 @@ export default function App() {
   };
 
   useEffect(() => {
-    fetchDemoParticipants();
-    if (!token) {
-      // Default to Camille demo for instant out-of-the-box exploration
-      const defaultDemoToken = 'token-camille-demo';
-      setToken(defaultDemoToken);
-      localStorage.setItem('soiree_token', defaultDemoToken);
-      fetchParticipantMe(defaultDemoToken);
+    if (!IS_PRODUCTION) {
+      fetchDemoParticipants();
+      if (!token) {
+        // Default demo login only in dev
+        const defaultDemoToken = 'token-camille-demo';
+        setToken(defaultDemoToken);
+        localStorage.setItem('soiree_token', defaultDemoToken);
+        fetchParticipantMe(defaultDemoToken);
+      } else {
+        fetchParticipantMe(token);
+      }
     } else {
-      fetchParticipantMe(token);
+      // Production: if token exists, fetch participant, otherwise stay unauthenticated
+      if (token) {
+        fetchParticipantMe(token);
+      }
     }
   }, []);
 
@@ -387,15 +395,18 @@ export default function App() {
   return (
     <div>
       {/* 1. TOP BAR : DEMO SWITCHER & ACCÈS ADMIN */}
-      <DemoSwitcher
-        demoParticipants={demoParticipants}
-        currentParticipant={participant}
-        onSelectParticipant={handleSelectDemoParticipant}
-        onOpenAdmin={() => setIsAdmin(true)}
-        isAdmin={isAdmin}
-        onResetDemo={handleResetDemo}
-        isResetting={isResettingDemo}
-      />
+      {!IS_PRODUCTION && (
+        <DemoSwitcher
+          demoParticipants={demoParticipants}
+          currentParticipant={participant}
+          onSelectParticipant={handleSelectDemoParticipant}
+          onOpenAdmin={() => setIsAdmin(true)}
+          isAdmin={isAdmin}
+          onResetDemo={handleResetDemo}
+          isResetting={isResettingDemo}
+          isProduction={IS_PRODUCTION}
+        />
+      )}
 
       <div className={`app-container ${isAdmin ? 'admin-mode' : ''}`}>
         {/* =========================================================

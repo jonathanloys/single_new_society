@@ -48,7 +48,7 @@ export function DemoSwitcher({
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         <button
           onClick={onResetDemo}
-          disabled={isResetting}
+          disabled={isResetting || IS_PRODUCTION}
           className="btn-secondary"
           style={{ padding: '4px 10px', fontSize: '11px', borderRadius: '6px' }}
           title="Réinitialiser les données de démonstration"
