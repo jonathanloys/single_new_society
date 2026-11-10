@@ -395,7 +395,7 @@ const [isAdmin, setIsAdmin] = useState(false);
   return (
     <div>
       {/* 1. TOP BAR : DEMO SWITCHER & ACCÈS ADMIN */}
-      {!IS_PRODUCTION && (
+      {IS_PRODUCTION ? null : (
         <DemoSwitcher
           demoParticipants={demoParticipants}
           currentParticipant={participant}
