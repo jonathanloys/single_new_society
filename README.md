@@ -1,4 +1,4 @@
-# single_new_society
+<!-- Production ready commit trigger -->
 
 # Webapp Soirées Célibataires — MVP Pilote
 

@@ -395,7 +395,7 @@ const [isAdmin, setIsAdmin] = useState(false);
   return (
     <div>
       {/* 1. TOP BAR : DEMO SWITCHER & ACCÈS ADMIN */}
-      {IS_PRODUCTION ? null : (
+      {!IS_PRODUCTION && (
         <DemoSwitcher
           demoParticipants={demoParticipants}
           currentParticipant={participant}
@@ -406,6 +406,16 @@ const [isAdmin, setIsAdmin] = useState(false);
           isResetting={isResettingDemo}
           isProduction={IS_PRODUCTION}
         />
+      )}
+      {/* Admin button always visible */}
+      {!isAdmin && (
+        <button
+          onClick={() => setIsAdmin(true)}
+          className="btn-primary"
+          style={{ margin: '8px', padding: '4px 10px', fontSize: '11px', borderRadius: '6px' }}
+        >
+          Admin
+        </button>
       )}
 
       <div className={`app-container ${isAdmin ? 'admin-mode' : ''}`}>
