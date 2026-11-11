@@ -410,7 +410,14 @@ const [isAdmin, setIsAdmin] = useState(false);
       {/* Admin button always visible */}
       {!isAdmin && (
         <button
-          onClick={() => setIsAdmin(true)}
+          onClick={() => {
+        const code = window.prompt('Entrez le code admin :');
+        if (code === 'gbfrdt') {
+          setIsAdmin(true);
+        } else {
+          alert('Code admin incorrect');
+        }
+      }}
           className="btn-primary"
           style={{ margin: '8px', padding: '4px 10px', fontSize: '11px', borderRadius: '6px' }}
         >
