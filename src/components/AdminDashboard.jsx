@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import {
   BarChart3,
@@ -17,10 +18,17 @@ import {
   Calendar,
 } from 'lucide-react';
 
-// AdminDashboard component
 export function AdminDashboard({ onExitAdmin }) {
   // Tab navigation state
   const [activeTab, setActiveTab] = useState('overview');
+
+  // Load data when switching tabs
+  useEffect(() => {
+    if (activeTab === 'events') {
+      loadAllEvents();
+    }
+    // Additional data loading can be added for other tabs here
+  }, [activeTab]);
 
   // Event management state
   const [newEvent, setNewEvent] = useState({
@@ -76,6 +84,11 @@ export function AdminDashboard({ onExitAdmin }) {
     { id: 'events', label: 'Événements', icon: Calendar },
   ];
 
+  useEffect(() => {
+    // Initial load of events list for events tab and overview stats
+    loadAllEvents();
+  }, []);
+
   return (
     <div className="admin-dashboard">
       {/* Tab navigation */}
@@ -96,9 +109,85 @@ export function AdminDashboard({ onExitAdmin }) {
       </nav>
 
       {/* Overview tab placeholder */}
-      {activeTab === 'overview' && <div>Contenu d'aperçu</div>}
+      {activeTab === 'overview' && (
+          <div>
+            <h3>Statistiques d'aperçu</h3>
+            <p>Total événements: {overviewStats.totalEvents}</p>
+            {overviewStats.latestEvent && (
+              <div>
+                <strong>Dernier événement créé:</strong>
+                <ul>
+                  <li>Nom: {overviewStats.latestEvent.name}</li>
+                  <li>Code: {overviewStats.latestEvent.code}</li>
+                  <li>Date: {new Date(overviewStats.latestEvent.date).toLocaleString()}</li>
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
       {/* Zones tab placeholder */}
-      {activeTab === 'zones' && <div>Gestion des zones</div>}
+                {/* Zones tab placeholder */}
+          {activeTab === 'zones' && (
+            <div>
+              <h3>Gestion des zones</h3>
+              <div>
+                <label>Choisir un événement: </label>
+                <select
+                  value={selectedEventId}
+                  onChange={(e) => setSelectedEventId(e.target.value)}
+                >
+                  <option value="">-- Sélectionner --</option>
+                  {allEvents.map((ev) => (
+                    <option key={ev.id} value={ev.id}>
+                      {ev.name} ({ev.code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {zones.length > 0 && (
+                <table className="table-auto w-full" style={{ borderCollapse: 'collapse', marginTop: '12px' }}>
+                  <thead>
+                    <tr style={{ background: '#f5f5f5' }}>
+                      <th>ID</th>
+                      <th>Zone</th>
+                      <th>Active</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {zones.map((z) => (
+                      <tr key={z.id} style={{ borderBottom: '1px solid #e0e0e0' }}>
+                        <td>{z.id}</td>
+                        <td>{z.zone_number}</td>
+                        <td>{z.is_active ? 'Oui' : 'Non'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+          {/* Engine tab placeholder */}
+          {activeTab === 'engine' && (
+            <div>
+              <h3>Gestion du moteur</h3>
+              <p>Fonctionnalités du moteur de matchmaking à implémenter.</p>
+            </div>
+          )}
+          {/* Participants tab placeholder */}
+          {activeTab === 'participants' && (
+            <div>
+              <h3>Gestion des participants</h3>
+              {participants.length === 0 ? (
+                <p>Aucun participant chargé. Sélectionnez un événement dans l'onglet Zones.</p>
+              ) : (
+                <ul>
+                  {participants.map((p) => (
+                    <li key={p.id}>{p.first_name} ({p.gender})</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
       {/* Engine tab placeholder */}
       {activeTab === 'engine' && <div>Gestion du moteur</div>}
       {/* Participants tab placeholder */}
