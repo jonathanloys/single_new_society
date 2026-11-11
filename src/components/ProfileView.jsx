@@ -30,6 +30,8 @@ export function ProfileView({ participant, questionnaire, onUpdateProfile, onLog
   const [customInterest, setCustomInterest] = useState(questionnaire?.custom_interest || '');
   const [values, setValues] = useState(questionnaire?.values || []);
   const [outfit, setOutfit] = useState(questionnaire?.distinctive_outfit || '');
+  const [secretBrainNotes, setSecretBrainNotes] = useState(questionnaire?.secret_brain_notes || '');
+  const [mood, setMood] = useState(questionnaire?.mood || 'Détendu(e) et curieux(se)');
 
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -50,6 +52,8 @@ export function ProfileView({ participant, questionnaire, onUpdateProfile, onLog
       setCustomInterest(questionnaire.custom_interest || '');
       setValues(questionnaire.values || []);
       setOutfit(questionnaire.distinctive_outfit || '');
+      setSecretBrainNotes(questionnaire.secret_brain_notes || '');
+      setMood(questionnaire.mood || 'Détendu(e) et curieux(se)');
     }
   }, [questionnaire]);
 
@@ -90,7 +94,9 @@ export function ProfileView({ participant, questionnaire, onUpdateProfile, onLog
         interests,
         custom_interest: customInterest.trim(),
         values,
-        distinctive_outfit: outfit.trim()
+        distinctive_outfit: outfit.trim(),
+        secret_brain_notes: secretBrainNotes.trim(),
+        mood
       });
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 4000);
@@ -359,6 +365,32 @@ export function ProfileView({ participant, questionnaire, onUpdateProfile, onLog
               );
             })}
           </div>
+        </div>
+
+        {/* Message secret pour le cerveau de l'app */}
+        <div>
+          <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>
+            Confidences pour le cerveau de l'application
+          </label>
+          <div style={{
+            background: 'rgba(99, 102, 241, 0.1)',
+            border: '1px solid rgba(99, 102, 241, 0.3)',
+            borderRadius: 'var(--radius-sm)',
+            padding: '10px 12px',
+            fontSize: '12px',
+            color: '#c7d2fe',
+            marginBottom: '8px',
+            lineHeight: 1.5
+          }}>
+            <strong>100% Confidentiel :</strong> Aucun organisateur ni participant n'a accès à ce texte. Il sert exclusivement au moteur algorithmique pour affiner les suggestions selon ta sensibilité.
+          </div>
+          <textarea
+            rows="3"
+            value={secretBrainNotes}
+            onChange={(e) => setSecretBrainNotes(e.target.value)}
+            placeholder="Dis au cerveau de l'app ce qui te caractérise ou ce que tu aimerais trouver..."
+            style={{ fontSize: '13px', lineHeight: 1.5 }}
+          />
         </div>
 
         {/* Bouton d'enregistrement */}

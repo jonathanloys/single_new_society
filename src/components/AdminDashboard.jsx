@@ -65,16 +65,82 @@ export function AdminDashboard({ onExitAdmin }) {
   const [eventCreationStatus, setEventCreationStatus] = useState(null); // { type: 'success' | 'error', message: '' }
   const [isSubmittingEvent, setIsSubmittingEvent] = useState(false);
 
-  // 1. Fetch all events
+  // Helpers for persistent custom events and deleted event tombstones across serverless cold starts
+  const getCustomEvents = () => {
+    try {
+      return JSON.parse(localStorage.getItem('single_admin_custom_events') || '[]');
+    } catch (e) {
+      return [];
+    }
+  };
+
+  const saveCustomEvents = (list) => {
+    try {
+      localStorage.setItem('single_admin_custom_events', JSON.stringify(list));
+    } catch (e) {}
+  };
+
+  const getDeletedEventIds = () => {
+    try {
+      return JSON.parse(localStorage.getItem('single_admin_deleted_event_ids') || '[]');
+    } catch (e) {
+      return [];
+    }
+  };
+
+  const addDeletedEventId = (id) => {
+    try {
+      const list = getDeletedEventIds();
+      if (!list.includes(id)) {
+        list.push(id);
+        localStorage.setItem('single_admin_deleted_event_ids', JSON.stringify(list));
+      }
+    } catch (e) {}
+  };
+
+  // 1. Fetch all events (with automatic zombie cleanup and custom event restoration)
   const loadEvents = async () => {
     setIsLoadingEvents(true);
     try {
       const res = await fetch('/api/events');
       if (!res.ok) throw new Error('Impossible de charger les événements');
-      const data = await res.json();
-      setEvents(data);
-      if (data.length > 0 && !selectedEventId) {
-        setSelectedEventId(data[0].id);
+      let serverEvents = await res.json();
+
+      const deletedIds = getDeletedEventIds();
+      // If the server returned an event that the admin previously deleted (e.g. re-seeded demo event after cold start), delete it!
+      const zombieEvents = serverEvents.filter(ev => deletedIds.includes(ev.id));
+      for (const z of zombieEvents) {
+        fetch(`/api/events/${z.id}`, { method: 'DELETE' }).catch(() => {});
+      }
+      serverEvents = serverEvents.filter(ev => !deletedIds.includes(ev.id));
+
+      // If any custom events created by the admin are missing from the server (e.g. after a cold start / redeploy), restore them!
+      const customEvents = getCustomEvents();
+      for (const cust of customEvents) {
+        if (!deletedIds.includes(cust.id) && !serverEvents.some(ev => ev.id === cust.id)) {
+          try {
+            const restRes = await fetch('/api/events/restore', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(cust)
+            });
+            if (restRes.ok) {
+              const restoredEv = await restRes.json();
+              serverEvents.push(restoredEv);
+            }
+          } catch (e) {
+            console.error('Failed to restore custom event:', e);
+          }
+        }
+      }
+
+      setEvents(serverEvents);
+      if (serverEvents.length > 0) {
+        if (!selectedEventId || !serverEvents.some(ev => ev.id === selectedEventId)) {
+          setSelectedEventId(serverEvents[0].id);
+        }
+      } else {
+        setSelectedEventId('');
       }
     } catch (err) {
       console.error(err);
@@ -187,6 +253,20 @@ export function AdminDashboard({ onExitAdmin }) {
         setEditingZoneName('');
         await loadZones(selectedEventId);
         loadDashboardData(selectedEventId);
+
+        // Update zone name in stored custom events if applicable
+        const customEvents = getCustomEvents();
+        const evIdx = customEvents.findIndex(ev => ev.id === selectedEventId);
+        if (evIdx >= 0) {
+          if (!customEvents[evIdx].zones) customEvents[evIdx].zones = [];
+          const zIdx = customEvents[evIdx].zones.findIndex(z => z.zone_number === zoneNumber);
+          if (zIdx >= 0) {
+            customEvents[evIdx].zones[zIdx].name = editingZoneName.trim();
+          } else {
+            customEvents[evIdx].zones.push({ zone_number: zoneNumber, name: editingZoneName.trim() });
+          }
+          saveCustomEvents(customEvents);
+        }
       } else {
         const data = await res.json();
         alert(data.error || 'Impossible de renommer la zone.');
@@ -211,6 +291,11 @@ export function AdminDashboard({ onExitAdmin }) {
       });
       const data = await res.json();
       if (res.ok) {
+        // Remember deletion permanently so zombie demo events won't reappear on cold starts
+        addDeletedEventId(eventId);
+        const remainingCustom = getCustomEvents().filter(ev => ev.id !== eventId);
+        saveCustomEvents(remainingCustom);
+
         setEventCreationStatus({
           type: 'success',
           message: `Soirée « ${eventName} » supprimée avec succès.`
@@ -281,6 +366,17 @@ export function AdminDashboard({ onExitAdmin }) {
 
       const data = await res.json();
       if (res.ok) {
+        // Save to persisted custom events
+        const customEvents = getCustomEvents();
+        const existingIdx = customEvents.findIndex(ev => ev.id === data.id);
+        if (existingIdx >= 0) customEvents[existingIdx] = data;
+        else customEvents.push(data);
+        saveCustomEvents(customEvents);
+
+        // Remove from deleted list if it was previously marked as deleted
+        const deletedIds = getDeletedEventIds().filter(id => id !== data.id);
+        localStorage.setItem('single_admin_deleted_event_ids', JSON.stringify(deletedIds));
+
         setEventCreationStatus({
           type: 'success',
           message: `Événement « ${data.name} » créé avec succès ! Code d'accès : ${data.code}`

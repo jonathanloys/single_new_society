@@ -73,6 +73,9 @@ export function initDatabase() {
       core_values TEXT, -- JSON array of strings
       relational_expectations TEXT, -- JSON array of strings
       distinctive_outfit TEXT, -- e.g. "Je porte une chemise bleue" (strictly private until mutual match)
+      secret_brain_notes TEXT, -- strictly private, never read by humans, used solely by matching engine
+      mood TEXT, -- mood / energy of the evening
+      attraction_traits TEXT, -- JSON array of qualities that catch attention
       completed_at TEXT NOT NULL,
       FOREIGN KEY (participant_id) REFERENCES participants(id) ON DELETE CASCADE
     );
@@ -170,6 +173,11 @@ export function initDatabase() {
       UNIQUE(author_id, target_id)
     );
   `);
+
+  // Migrations for existing databases
+  try { db.exec('ALTER TABLE questionnaires ADD COLUMN secret_brain_notes TEXT;'); } catch (e) {}
+  try { db.exec('ALTER TABLE questionnaires ADD COLUMN mood TEXT;'); } catch (e) {}
+  try { db.exec('ALTER TABLE questionnaires ADD COLUMN attraction_traits TEXT;'); } catch (e) {}
 
   // Ensure default demo event exists if none
   const existing = db.prepare('SELECT COUNT(*) as count FROM events').get();

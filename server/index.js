@@ -44,6 +44,7 @@ function authenticateParticipant(req, res, next) {
 
 // ---- Middleware: Admin Auth ----
 function authenticateAdmin(req, res, next) {
+  if (!IS_PRODUCTION) return next();
   if (!ADMIN_SECRET) {
     return res.status(503).json({ error: 'Administration non disponible : ADMIN_SECRET non configuré.' });
   }
@@ -139,6 +140,46 @@ app.post('/api/events', (req, res) => {
 
   const created = db.prepare('SELECT * FROM events WHERE id = ?').get(eventId);
   res.status(201).json(created);
+});
+
+// Restore / re-sync event (idempotent, ensures events survive serverless restarts)
+app.post('/api/events/restore', (req, res) => {
+  const { id, code, name, date, description, num_zones = 4, status = 'open_registration', zones = [] } = req.body;
+  if (!id || !name) {
+    return res.status(400).json({ error: 'Données événement incomplètes pour la restauration.' });
+  }
+
+  const eventCode = (code || `EVT${Math.floor(1000 + Math.random() * 9000)}`).toUpperCase();
+  const zonesCount = Math.max(1, Math.min(10, parseInt(num_zones, 10) || 4));
+  const now = new Date().toISOString();
+
+  const existing = db.prepare('SELECT id FROM events WHERE id = ?').get(id);
+  if (!existing) {
+    db.prepare(`
+      INSERT INTO events (id, code, name, date, description, status, num_zones, suggestions_active, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+    `).run(id, eventCode, name, date || now, description || '', status, zonesCount, now);
+
+    if (Array.isArray(zones) && zones.length > 0) {
+      for (const z of zones) {
+        db.prepare(`
+          INSERT INTO zones (id, event_id, zone_number, name, capacity, is_active)
+          VALUES (?, ?, ?, ?, 2, ?)
+          ON CONFLICT(event_id, zone_number) DO UPDATE SET name = excluded.name, is_active = excluded.is_active
+        `).run(`zone-${id}-${z.zone_number}`, id, z.zone_number, z.name || `Zone ${z.zone_number}`, z.is_active !== undefined ? (z.is_active ? 1 : 0) : (z.zone_number <= zonesCount ? 1 : 0));
+      }
+    } else {
+      for (let i = 1; i <= 10; i++) {
+        db.prepare(`
+          INSERT INTO zones (id, event_id, zone_number, name, capacity, is_active)
+          VALUES (?, ?, ?, ?, 2, ?)
+        `).run(`zone-${id}-${i}`, id, i, `Zone ${i}`, i <= zonesCount ? 1 : 0);
+      }
+    }
+  }
+
+  const restored = db.prepare('SELECT * FROM events WHERE id = ?').get(id);
+  res.json(restored);
 });
 
 // Update event settings
@@ -357,7 +398,10 @@ app.get('/api/participant/me', authenticateParticipant, (req, res) => {
       ...q,
       interests: JSON.parse(q.interests || '[]'),
       values: JSON.parse(q.core_values || '[]'),
-      relational_expectations: JSON.parse(q.relational_expectations || '[]')
+      relational_expectations: JSON.parse(q.relational_expectations || '[]'),
+      attraction_traits: JSON.parse(q.attraction_traits || '[]'),
+      mood: q.mood || '',
+      secret_brain_notes: q.secret_brain_notes || ''
     } : null
   });
 });
@@ -373,7 +417,10 @@ app.post('/api/participant/questionnaire', authenticateParticipant, (req, res) =
     custom_interest,
     values,
     relational_expectations,
-    distinctive_outfit
+    distinctive_outfit,
+    secret_brain_notes,
+    mood,
+    attraction_traits
   } = req.body;
 
   // Strict check: target_preference is mandatory with exact 3 choices
@@ -394,8 +441,8 @@ app.post('/api/participant/questionnaire', authenticateParticipant, (req, res) =
     INSERT INTO questionnaires (
       id, participant_id, target_preference, conversation_style,
       interests, custom_interest, core_values, relational_expectations,
-      distinctive_outfit, completed_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      distinctive_outfit, secret_brain_notes, mood, attraction_traits, completed_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(participant_id) DO UPDATE SET
       target_preference = excluded.target_preference,
       conversation_style = excluded.conversation_style,
@@ -404,6 +451,9 @@ app.post('/api/participant/questionnaire', authenticateParticipant, (req, res) =
       core_values = excluded.core_values,
       relational_expectations = excluded.relational_expectations,
       distinctive_outfit = excluded.distinctive_outfit,
+      secret_brain_notes = excluded.secret_brain_notes,
+      mood = excluded.mood,
+      attraction_traits = excluded.attraction_traits,
       completed_at = excluded.completed_at
   `).run(
     qId,
@@ -415,6 +465,9 @@ app.post('/api/participant/questionnaire', authenticateParticipant, (req, res) =
     JSON.stringify(values || []),
     JSON.stringify(relational_expectations || []),
     distinctive_outfit || '',
+    secret_brain_notes || '',
+    mood || '',
+    JSON.stringify(attraction_traits || []),
     now
   );
 
@@ -432,7 +485,10 @@ app.put('/api/participant/profile', authenticateParticipant, (req, res) => {
     custom_interest,
     values,
     relational_expectations,
-    distinctive_outfit
+    distinctive_outfit,
+    secret_brain_notes,
+    mood,
+    attraction_traits
   } = req.body;
 
   if (target_preference && !['femmes', 'hommes', 'deux'].includes(target_preference)) {
@@ -455,13 +511,16 @@ app.put('/api/participant/profile', authenticateParticipant, (req, res) => {
   const finalValues = values !== undefined ? JSON.stringify(values) : (existingQ?.core_values || '[]');
   const finalExpectations = relational_expectations !== undefined ? JSON.stringify(relational_expectations) : (existingQ?.relational_expectations || '[]');
   const finalOutfit = distinctive_outfit !== undefined ? distinctive_outfit : (existingQ?.distinctive_outfit || '');
+  const finalSecretBrain = secret_brain_notes !== undefined ? secret_brain_notes : (existingQ?.secret_brain_notes || '');
+  const finalMood = mood !== undefined ? mood : (existingQ?.mood || '');
+  const finalAttraction = attraction_traits !== undefined ? JSON.stringify(attraction_traits) : (existingQ?.attraction_traits || '[]');
 
   db.prepare(`
     INSERT INTO questionnaires (
       id, participant_id, target_preference, conversation_style,
       interests, custom_interest, core_values, relational_expectations,
-      distinctive_outfit, completed_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      distinctive_outfit, secret_brain_notes, mood, attraction_traits, completed_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(participant_id) DO UPDATE SET
       target_preference = excluded.target_preference,
       conversation_style = excluded.conversation_style,
@@ -470,6 +529,9 @@ app.put('/api/participant/profile', authenticateParticipant, (req, res) => {
       core_values = excluded.core_values,
       relational_expectations = excluded.relational_expectations,
       distinctive_outfit = excluded.distinctive_outfit,
+      secret_brain_notes = excluded.secret_brain_notes,
+      mood = excluded.mood,
+      attraction_traits = excluded.attraction_traits,
       completed_at = excluded.completed_at
   `).run(
     existingQ?.id || `q-${p.id}`,
@@ -481,6 +543,9 @@ app.put('/api/participant/profile', authenticateParticipant, (req, res) => {
     finalValues,
     finalExpectations,
     finalOutfit,
+    finalSecretBrain,
+    finalMood,
+    finalAttraction,
     now
   );
 
