@@ -198,6 +198,29 @@ app.patch('/api/events/:id', (req, res) => {
   res.json(updated);
 });
 
+// Delete event
+app.delete('/api/events/:id', (req, res) => {
+  const eventId = req.params.id;
+  const event = db.prepare('SELECT * FROM events WHERE id = ?').get(eventId);
+  if (!event) return res.status(404).json({ error: 'Événement non trouvé.' });
+
+  // Explicitly delete all associated data
+  const participants = db.prepare('SELECT id FROM participants WHERE event_id = ?').all(eventId);
+  for (const p of participants) {
+    db.prepare('DELETE FROM questionnaires WHERE participant_id = ?').run(p.id);
+  }
+  db.prepare('DELETE FROM participants WHERE event_id = ?').run(eventId);
+  db.prepare('DELETE FROM zones WHERE event_id = ?').run(eventId);
+  db.prepare('DELETE FROM suggestions WHERE event_id = ?').run(eventId);
+  db.prepare('DELETE FROM invitations WHERE event_id = ?').run(eventId);
+  db.prepare('DELETE FROM meetings WHERE event_id = ?').run(eventId);
+  db.prepare('DELETE FROM curiosities WHERE event_id = ?').run(eventId);
+  db.prepare('DELETE FROM final_selections WHERE event_id = ?').run(eventId);
+  db.prepare('DELETE FROM events WHERE id = ?').run(eventId);
+
+  res.json({ success: true, message: `Événement ${event.name} supprimé.` });
+});
+
 /* ============================================================
    3. ZONES MANAGEMENT
    ============================================================ */

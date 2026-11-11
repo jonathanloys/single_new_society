@@ -15,7 +15,11 @@ import {
   MessageSquare,
   Sparkles,
   Layers,
-  ArrowRight
+  ArrowRight,
+  Trash2,
+  Edit2,
+  Check,
+  X
 } from 'lucide-react';
 
 export function AdminDashboard({ onExitAdmin }) {
@@ -33,6 +37,9 @@ export function AdminDashboard({ onExitAdmin }) {
 
   const [zones, setZones] = useState([]);
   const [isLoadingZones, setIsLoadingZones] = useState(false);
+  const [editingZoneNumber, setEditingZoneNumber] = useState(null);
+  const [editingZoneName, setEditingZoneName] = useState('');
+  const [isSavingZoneName, setIsSavingZoneName] = useState(false);
 
   const [participants, setParticipants] = useState([]);
   const [isLoadingParticipants, setIsLoadingParticipants] = useState(false);
@@ -150,6 +157,74 @@ export function AdminDashboard({ onExitAdmin }) {
       }
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  // Start renaming a zone
+  const handleStartEditZone = (zone) => {
+    setEditingZoneNumber(zone.zone_number);
+    setEditingZoneName(zone.name || `Zone ${zone.zone_number}`);
+  };
+
+  // Cancel renaming a zone
+  const handleCancelEditZone = () => {
+    setEditingZoneNumber(null);
+    setEditingZoneName('');
+  };
+
+  // Save new zone name
+  const handleSaveZoneName = async (zoneNumber) => {
+    if (!editingZoneName.trim() || !selectedEventId) return;
+    setIsSavingZoneName(true);
+    try {
+      const res = await fetch(`/api/events/${selectedEventId}/zones/${zoneNumber}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: editingZoneName.trim() })
+      });
+      if (res.ok) {
+        setEditingZoneNumber(null);
+        setEditingZoneName('');
+        await loadZones(selectedEventId);
+        loadDashboardData(selectedEventId);
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Impossible de renommer la zone.');
+      }
+    } catch (err) {
+      alert(`Erreur réseau : ${err.message}`);
+    } finally {
+      setIsSavingZoneName(false);
+    }
+  };
+
+  // Delete an event
+  const handleDeleteEvent = async (eventId, eventName) => {
+    const confirmed = window.confirm(
+      `Êtes-vous sûr de vouloir supprimer la soirée « ${eventName} » ?\n\nToutes les données associées (participants, zones, rencontres) seront définitivement effacées.`
+    );
+    if (!confirmed) return;
+
+    try {
+      const res = await fetch(`/api/events/${eventId}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setEventCreationStatus({
+          type: 'success',
+          message: `Soirée « ${eventName} » supprimée avec succès.`
+        });
+        const remaining = events.filter((ev) => ev.id !== eventId);
+        setEvents(remaining);
+        if (selectedEventId === eventId) {
+          setSelectedEventId(remaining.length > 0 ? remaining[0].id : '');
+        }
+      } else {
+        alert(data.error || 'Erreur lors de la suppression.');
+      }
+    } catch (err) {
+      alert(`Erreur réseau : ${err.message}`);
     }
   };
 
@@ -568,20 +643,93 @@ export function AdminDashboard({ onExitAdmin }) {
                   }}
                 >
                   <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontWeight: 700, fontSize: '15px', color: 'var(--text-main)' }}>
-                        {z.name || `Zone ${z.zone_number}`}
-                      </span>
-                      <span
-                        className={z.is_active ? 'badge badge-success' : 'badge badge-dim'}
-                        style={{ fontSize: '10px' }}
-                      >
-                        {z.is_active ? 'Active' : 'Inhibée'}
-                      </span>
-                    </div>
-                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '6px' }}>
-                      Capacité : 2 participants (rencontre 1:1)
-                    </p>
+                    {editingZoneNumber === z.zone_number ? (
+                      <div style={{ marginBottom: '10px' }}>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                          Nom de la zone :
+                        </label>
+                        <input
+                          type="text"
+                          value={editingZoneName}
+                          onChange={(e) => setEditingZoneName(e.target.value)}
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleSaveZoneName(z.zone_number);
+                            if (e.key === 'Escape') handleCancelEditZone();
+                          }}
+                          style={{
+                            fontSize: '13px',
+                            padding: '6px 10px',
+                            marginBottom: '8px',
+                            borderRadius: 'var(--radius-sm)'
+                          }}
+                        />
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button
+                            type="button"
+                            onClick={() => handleSaveZoneName(z.zone_number)}
+                            disabled={isSavingZoneName || !editingZoneName.trim()}
+                            className="btn-primary"
+                            style={{
+                              padding: '5px 10px',
+                              fontSize: '11px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                          >
+                            <Check size={12} /> {isSavingZoneName ? 'Enregistrement...' : 'Valider'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleCancelEditZone}
+                            className="btn-secondary"
+                            style={{
+                              padding: '5px 10px',
+                              fontSize: '11px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                          >
+                            <X size={12} /> Annuler
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                          <span style={{ fontWeight: 700, fontSize: '15px', color: 'var(--text-main)', wordBreak: 'break-word' }}>
+                            {z.name || `Zone ${z.zone_number}`}
+                          </span>
+                          <span
+                            className={z.is_active ? 'badge badge-success' : 'badge badge-dim'}
+                            style={{ fontSize: '10px', flexShrink: 0 }}
+                          >
+                            {z.is_active ? 'Active' : 'Inhibée'}
+                          </span>
+                        </div>
+                        <div style={{ marginTop: '8px', marginBottom: '8px' }}>
+                          <button
+                            type="button"
+                            onClick={() => handleStartEditZone(z)}
+                            className="btn-secondary"
+                            style={{
+                              padding: '4px 8px',
+                              fontSize: '11px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                          >
+                            <Edit2 size={12} /> Renommer
+                          </button>
+                        </div>
+                        <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                          Capacité : 2 participants (rencontre 1:1)
+                        </p>
+                      </div>
+                    )}
                   </div>
                   <button
                     onClick={() => toggleZone(z.zone_number, z.is_active)}
@@ -908,16 +1056,36 @@ export function AdminDashboard({ onExitAdmin }) {
                             {ev.num_zones || 4}
                           </td>
                           <td style={{ padding: '10px 8px' }}>
-                            <button
-                              onClick={() => {
-                                setSelectedEventId(ev.id);
-                                setActiveTab('overview');
-                              }}
-                              className="btn-secondary"
-                              style={{ padding: '4px 10px', fontSize: '11px' }}
-                            >
-                              Gérer
-                            </button>
+                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedEventId(ev.id);
+                                  setActiveTab('overview');
+                                }}
+                                className="btn-secondary"
+                                style={{ padding: '4px 10px', fontSize: '11px' }}
+                              >
+                                Gérer
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteEvent(ev.id, ev.name)}
+                                className="btn-secondary"
+                                title="Supprimer définitivement cet événement"
+                                style={{
+                                  padding: '4px 8px',
+                                  fontSize: '11px',
+                                  color: '#f87171',
+                                  borderColor: 'rgba(239, 68, 68, 0.4)',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px'
+                                }}
+                              >
+                                <Trash2 size={12} /> Supprimer
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
