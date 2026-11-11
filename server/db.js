@@ -173,7 +173,7 @@ export function initDatabase() {
 
   // Ensure default demo event exists if none
   const existing = db.prepare('SELECT COUNT(*) as count FROM events').get();
-  if (existing.count === 0 && !process.env.NODE_ENV?.startsWith('production')) {
+  if (existing.count === 0) {
     seedDemoEvent();
   }
 }
